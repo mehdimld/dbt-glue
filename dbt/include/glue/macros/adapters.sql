@@ -58,10 +58,25 @@
   {%- endif %}
 {%- endmacro -%}
 
+{% macro glue__iceberg_replace_sql(sql, iceberg_tables, relation) %}
+ {%- set final_sql = sql %}
+  {% set sql_list = [sql] %}
+
+ {% for iceberg_table in iceberg_tables %}
+    {%- set final_sql = sql_list[-1] | replace(relation.database ~ '.' ~ iceberg_table, "glue_catalog." ~ relation.database ~ '.' ~ iceberg_table) -%}
+    {%- set temp = sql_list.append(final_sql) -%}
+  {% endfor %}
+  {{ sql_list[-1] }}
+{%- endmacro -%}
+
 {% macro glue__create_table_as(temporary, relation, sql) -%}
   {%- set file_format = config.get('file_format', validator=validation.any[basestring]) -%}
   {%- set table_properties = config.get('table_properties', default={}) -%}
-
+  {%- set iceberg_tables = config.get('iceberg_tables', default=none) -%}
+  {% if iceberg_tables is not none -%}
+    {%- set iceberg_setup = adapter.iceberg_read(relation) -%}
+    {%- set sql = glue__iceberg_replace_sql(sql, iceberg_tables, relation) -%}
+  {% endif %}
   {% if temporary -%}
     {{ create_temporary_view(relation, sql) }}
   {%- else -%}
@@ -73,11 +88,15 @@
 	{{ glue__location_clause(relation) }}
 	{{ comment_clause() }}
 	as
-	{{ sql }}
+	  {{ sql }}
   {%- endif %}
 {%- endmacro -%}
 
 {% macro glue__create_tmp_table_as(relation, sql) -%}
+  {% if iceberg_tables is not none -%}
+  {%- set iceberg_setup = adapter.iceberg_read(relation) -%}
+  {%- set sql = glue__iceberg_replace_sql(sql, iceberg_tables, relation) -%}
+  {% endif %}
   {% call statement("create_tmp_table_as", fetch_result=false, auto_begin=false) %}
     DROP TABLE IF EXISTS {{ relation }}
     dbt_next_query
@@ -122,6 +141,11 @@
 {% endmacro %}
 
 {% macro glue__create_view_as(relation, sql) -%}
+  {%- set iceberg_tables = config.get('iceberg_tables', default=none) -%}
+  {% if iceberg_tables is not none -%}
+      {%- set iceberg_setup = adapter.iceberg_read(relation) -%}
+      {%- set sql = glue__iceberg_replace_sql(sql, iceberg_tables, relation) -%}
+  {% endif %}
     DROP VIEW IF EXISTS {{ relation }}
     dbt_next_query
     create view {{ relation }}

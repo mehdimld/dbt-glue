@@ -798,7 +798,38 @@ SqlWrapper2.execute("""SELECT * FROM glue_catalog.{target_relation.schema}.{targ
             cursor.execute(code)
         except Exception as e:
             logger.error(e)
+    
+    @available
+    def iceberg_read(self, target_relation):
+        session, client, cursor = self.get_connection()
+        head_code = f'''
+custom_glue_code_for_dbt_adapter
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import *
+warehouse_path = f"{session.credentials.location}/{target_relation.schema}"
+dynamodb_table = f"{session.credentials.iceberg_glue_commit_lock_table}"
+spark = SparkSession.builder \
+    .config("spark.sql.warehouse.dir", warehouse_path) \
+    .config(f"spark.sql.catalog.glue_catalog", "org.apache.iceberg.spark.SparkCatalog") \
+    .config(f"spark.sql.catalog.glue_catalog.warehouse", warehouse_path) \
+    .config(f"spark.sql.catalog.glue_catalog.catalog-impl", "org.apache.iceberg.aws.glue.GlueCatalog") \
+    .config(f"spark.sql.catalog.glue_catalog.io-impl", "org.apache.iceberg.aws.s3.S3FileIO") \
+    .config(f"spark.sql.catalog.glue_catalog.lock-impl", "org.apache.iceberg.aws.glue.DynamoLockManager") \
+    .config(f"spark.sql.catalog.glue_catalog.lock.table", dynamodb_table) \
+    .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions") \
+    .getOrCreate()
+SqlWrapper2.execute("""SELECT 1""")
+        '''
+        code = head_code
 
+        logger.debug(f"""iceberg code :
+        {code}
+        """)
+        try:
+            cursor.execute(code)
+        except Exception as e:
+            logger.error(e)
+    
     @available
     def iceberg_expire_snapshots(self, table):
         """

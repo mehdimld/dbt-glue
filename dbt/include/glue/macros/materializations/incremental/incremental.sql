@@ -33,6 +33,12 @@
     set spark.sql.autoBroadcastJoinThreshold=-1
   {% endcall %}
 
+  {%- set iceberg_tables = config.get('iceberg_tables', default=none) -%}
+    {% if iceberg_tables is not none -%}
+      {%- set iceberg_setup = adapter.iceberg_read(target_relation) -%}
+      {%- set sql = glue__iceberg_replace_sql(sql, iceberg_tables, target_relation) -%}
+    {% endif %}
+  
   {% if file_format == 'hudi' %}
         {%- set hudi_options = config.get('hudi_options', default={}) -%}
         {{ adapter.hudi_merge_table(target_relation, sql, unique_key, partition_by, custom_location, hudi_options) }}
